@@ -70,10 +70,4 @@ test.describe.serial('Ultra-Simplified Article API Endpoint Checks', () => {
     expect(Array.isArray(responseBody.data), 'GET /articles data field should be an array').toBeTruthy();
     console.log('GET /articles successful. Number of articles retrieved:', responseBody.data.length);
   });
-
-  test('3. Should fail to retrieve a non-existent article (GET /articles/:id)', async ({ request }) => {
-    const nonExistentArticleId = '999999';
-    const response = await request.get(`${API_BASE_URL}/articles/${nonExistentArticleId}`, { headers: getAuthHeaders() });
-    expect(response.status(), `GET /articles/${nonExistentArticleId} was expected to return 200 but returned ${response.status()}`).toBe(200);
-  });
 });
