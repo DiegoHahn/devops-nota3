@@ -69,5 +69,6 @@ test.describe.serial('Ultra-Simplified Article API Endpoint Checks', () => {
     expect(responseBody.data, 'GET /articles response should have a data field').toBeDefined();
     expect(Array.isArray(responseBody.data), 'GET /articles data field should be an array').toBeTruthy();
     console.log('GET /articles successful. Number of articles retrieved:', responseBody.data.length);
+    console.log("testes passando");
   });
 });
