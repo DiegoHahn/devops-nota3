@@ -1,0 +1,66 @@
+name: Playwright Tests
+
+on:
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v3
+      with:
+        version: 8
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'pnpm'
+
+    - name: Install dependencies
+      run: pnpm install
+
+    - name: Build Strapi app
+      run: pnpm build
+      env:
+        NODE_ENV: production
+
+    - name: Start Strapi app and log output
+      run: pnpm start > strapi.log 2>&1 &
+      env:
+        NODE_ENV: production
+        PORT: 1337
+        APP_KEYS: ${{ secrets.APP_KEYS }}
+        API_TOKEN_SALT: ${{ secrets.API_TOKEN_SALT }}
+        ADMIN_JWT_SECRET: ${{ secrets.ADMIN_JWT_SECRET }}
+        JWT_SECRET: ${{ secrets.JWT_SECRET }}
+
+    - name: Wait for Strapi to be ready
+      run: |
+        echo "Waiting for Strapi to start..."
+        pnpm add wait-on --global # Install wait-on tool
+        wait-on tcp:1337 -t 90000 # Increased timeout to 90 seconds
+        echo "Strapi is ready!"
+      continue-on-error: true
+
+    - name: Display Strapi logs
+      if: always() # Always run this step to see logs
+      run: |
+        echo "---- Strapi Startup Log ----"
+        cat strapi.log
+        echo "---- End of Strapi Log ----"
+
+    - name: Install Playwright browsers
+      run: npx playwright install --with-deps
+
+    - name: Run Playwright tests
+      run: npx playwright test
+      env:
+        STRAPI_API_TOKEN: ${{ secrets.STRAPI_API_TOKEN }}
+        STRAPI_BASE_URL: http://127.0.0.1:1337/api
