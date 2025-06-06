@@ -1,0 +1,108 @@
+name: Deploy to Google Cloud Run
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GAR_LOCATION: us-central1
+  SERVICE: strapi-app
+  REGION: us-central1
+  REPOSITORY: strapi-app
+
+jobs:
+  deploy:
+    permissions:
+      contents: read
+      id-token: write
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Google Auth
+        id: auth
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: Set up Cloud SDK
+        uses: 'google-github-actions/setup-gcloud@v2'
+
+      - name: Configure Docker to use gcloud as a credential helper
+        run: |
+          gcloud auth configure-docker $GAR_LOCATION-docker.pkg.dev
+
+      - name: Create Artifact Registry repository (if not exists)
+        run: |
+          gcloud artifacts repositories create $REPOSITORY \
+            --repository-format=docker \
+            --location=$GAR_LOCATION \
+            --description="Docker repository for Strapi app" || true
+
+      - name: Build and Push Container
+        run: |
+          docker build -t $GAR_LOCATION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$GITHUB_SHA .
+          docker push $GAR_LOCATION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$GITHUB_SHA
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0
+
+      - name: Clean Terraform cache
+        run: |
+          rm -rf .terraform
+          rm -f .terraform.lock.hcl
+          rm -f terraform.tfstate*
+        working-directory: ./terraform
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: ./terraform
+
+      - name: Terraform Plan
+        run: |
+          terraform plan \
+            -var="project_id=$PROJECT_ID" \
+            -var="region=$REGION" \
+            -var="app_name=$SERVICE" \
+            -var="container_image=$GAR_LOCATION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$GITHUB_SHA" \
+            -var="app_keys=${{ secrets.APP_KEYS }}" \
+            -var="api_token_salt=${{ secrets.API_TOKEN_SALT }}" \
+            -var="admin_jwt_secret=${{ secrets.ADMIN_JWT_SECRET }}" \
+            -var="transfer_token_salt=${{ secrets.TRANSFER_TOKEN_SALT }}" \
+            -var="jwt_secret=${{ secrets.JWT_SECRET }}"
+        working-directory: ./terraform
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/master'
+        run: |
+          terraform apply -auto-approve \
+            -var="project_id=$PROJECT_ID" \
+            -var="region=$REGION" \
+            -var="app_name=$SERVICE" \
+            -var="container_image=$GAR_LOCATION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$GITHUB_SHA" \
+            -var="app_keys=${{ secrets.APP_KEYS }}" \
+            -var="api_token_salt=${{ secrets.API_TOKEN_SALT }}" \
+            -var="admin_jwt_secret=${{ secrets.ADMIN_JWT_SECRET }}" \
+            -var="transfer_token_salt=${{ secrets.TRANSFER_TOKEN_SALT }}" \
+            -var="jwt_secret=${{ secrets.JWT_SECRET }}"
+        working-directory: ./terraform
+
+      - name: Show Output
+        if: github.ref == 'refs/heads/master'
+        run: |
+          echo "### 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Service URL:** $(terraform output -raw service_url)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Admin Panel:** $(terraform output -raw admin_url)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Container Image:** $GAR_LOCATION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$GITHUB_SHA" >> $GITHUB_STEP_SUMMARY
+        working-directory: ./terraform
